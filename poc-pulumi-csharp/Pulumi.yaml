@@ -1,0 +1,3 @@
+name: pulumi-poc-midhun
+runtime: dotnet
+description: pulumi on azure
