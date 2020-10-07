@@ -1,1 +1,0 @@
-﻿A POC on PULUMI in Azure using C#
