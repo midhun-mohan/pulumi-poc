@@ -1,0 +1,11 @@
+encryptionsalt: v1:picwupdSqPM=:v1:sgYblK7Ic6XnIj68:n41z6eH8gXp6N+S9Hi6q3qQ8Va0lpw==
+config:
+  azure:location: westeurope
+  pulumi-poc-midhun:env: dev
+  pulumi-poc-midhun:ownerAdObjectId: xxxxx-xxxxxx-xxxxxx-xxxxxx-xxxxx
+  pulumi-poc-midhun:ownerGroupObjectId: xxxxx-xxxxxx-xxxxxx-xxxxxx-xxxxx
+  pulumi-poc-midhun:sqlServerAdministratorPassword:
+    secure: v1:rgMRopLpAbl8xqXI:Uu6zIeyvY+VLdkLy/FTj90JY6k7E+0swhPxEAw2BLQ==
+  pulumi-poc-midhun:tenantId:
+    secure: v1:gqdbyvwuebsdjnybvcqqqqqvoqcyboqoeywuyebiwueii3uegdyegfy1veyfo3ieugywbbudybeut31vfo13v4fo==
+  pulumi-poc-midhun:vnetAddressSpace: 10.198.10.0/24
