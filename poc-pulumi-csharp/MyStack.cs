@@ -3,10 +3,12 @@ using Pulumi;
 using Pulumi.Azure.ContainerService;
 using Pulumi.Azure.ContainerService.Inputs;
 using Pulumi.Azure.Core;
+using Pulumi.Azure.EventHub;
 using Pulumi.Azure.KeyVault;
 using Pulumi.Azure.KeyVault.Inputs;
 using Pulumi.Azure.Network;
 using Pulumi.Azure.Network.Inputs;
+using Pulumi.Azure.OperationalInsights;
 using Pulumi.Azure.Sql;
 using Pulumi.Azure.Sql.Inputs;
 using Pulumi.Azure.Storage;
@@ -171,16 +173,7 @@ class MyStack : Stack
                 }
             }
         });
-
-        // Find the subnet id of the above created subnet as it is not accessible directly
-        var gsubnet1 = Output.Create(GetSubnet.InvokeAsync(new GetSubnetArgs
-        {
-            Name = "subnet21",
-            ResourceGroupName = "midhun-poc-pulumi",
-            VirtualNetworkName = "midhun-poc-pulumi-vnet2"
-        }));
-
-        this.subnetId = gsubnet1.Apply(gsubnet1 => gsubnet1.Id);
+        
 
         // Create peering vnet1 --> vnet2
         var peering1 =  new VirtualNetworkPeering("peer1", new VirtualNetworkPeeringArgs
@@ -212,7 +205,7 @@ class MyStack : Stack
             IpConfigurations = new NetworkInterfaceIpConfigurationArgs
             {
                 Name = "midhun-poc-pulumi-nic-subnet-association",
-                SubnetId = subnet.Id,
+                SubnetId = virtualNetwork.Subnets.Apply(subnets => subnets[1].Id),
                 PrivateIpAddressAllocation = "dynamic"
             }
         });
@@ -332,12 +325,116 @@ class MyStack : Stack
             MaxSizeGb = "100",
             Collation = "Norwegian_100_CI_AS",
         });
+        
+        // Find the subnet id 
+        var gsubnet1 = Output.Create(GetSubnet.InvokeAsync(new GetSubnetArgs
+        {
+        Name = "subnet1",
+        ResourceGroupName = "midhun-m-dev",
+        VirtualNetworkName = "midhun-test-vnet-1"
+        }));
 
+        this.subnetId = gsubnet1.Apply(gsubnet1 => gsubnet1.Id);
+        
+        // use subnet id to create a vnet rule
+        var vnetfirewallrule = new VirtualNetworkRule("vnetrule", new VirtualNetworkRuleArgs
+        {
+            Name = "rule-1",
+            ServerName = sqlsrv.Name,
+            ResourceGroupName = sqlsrv.ResourceGroupName,
+            SubnetId = subnetId
+        });
+        
+        // Find Properties of virtual network
+        var gvnet1 = Output.Create(GetVirtualNetwork.InvokeAsync(new GetVirtualNetworkArgs
+        {
+            Name = "midhun-test-vnet-1",
+            ResourceGroupName = "midhun-m-dev"
+        }));
+        
+        // create forward peering => pulumi vnet --> non pulumi vnet
+        var peer3 = new VirtualNetworkPeering("peer3", new VirtualNetworkPeeringArgs
+        {
+            Name = "peer3-pulumivnet-nopulumivnet",
+            ResourceGroupName = virtualNetwork.ResourceGroupName,
+            VirtualNetworkName = virtualNetwork.Name,
+            RemoteVirtualNetworkId = gvnet1.Apply(gvnet1 => gvnet1.Id)
+        });
+        
+        // Create reverse peering => non pulumi vnet --> pulumi vnet
+        var peer4 = new VirtualNetworkPeering("peer4", new VirtualNetworkPeeringArgs
+        {
+            Name = "peer4-nonpulumivnet-pulumivnet",
+            ResourceGroupName = gvnet1.Apply(gvnet1 => gvnet1.ResourceGroupName),
+            VirtualNetworkName = gvnet1.Apply(gvnet1 => gvnet1.Name),
+            RemoteVirtualNetworkId = virtualNetwork.Id
+        });
        
+        // Create a new eventhub namespace
+        var evhns =  new EventHubNamespace("evhnns", new EventHubNamespaceArgs
+        {
+            Name = "midhun-poc-pulumi-evhns",
+            Location = resourceGroup.Location,
+            ResourceGroupName = resourceGroup.Name,
+            Tags = tag,
+            AutoInflateEnabled = true,
+            Sku = "Standard",
+            Capacity = 1,
+            MaximumThroughputUnits = 1
+        });
+        
+        // Create a new eventhub in the above namespace
+        var evh = new EventHub("evh", new EventHubArgs
+        {
+            Name = "midhun-poc-pulumi-evh",
+            MessageRetention = 1,
+            NamespaceName = evhns.Name,
+            PartitionCount = 1,
+            ResourceGroupName = resourceGroup.Name
+        });
+        
+        // Create a new consumer group in above eventhub
+        var consumerGroup = new ConsumerGroup("consumer1", new ConsumerGroupArgs
+        {
+            Name   = "consumerGroup1",
+            EventhubName = evh.Name,
+            NamespaceName = evhns.Name,
+            ResourceGroupName = resourceGroup.Name
+        });
+        
+        // Create a new Authorization rule in eventhub
+        var authRule =  new AuthorizationRule("rule1", new AuthorizationRuleArgs
+        {
+            Name = "rule1",
+            EventhubName = evh.Name,
+            NamespaceName = evhns.Name,
+            ResourceGroupName = resourceGroup.Name,
+            Send = true
+        });
+        
+        var logAnalytics =  new AnalyticsWorkspace("la", new AnalyticsWorkspaceArgs
+        {
+            Location = resourceGroup.Location,
+            ResourceGroupName = resourceGroup.Name,
+            Name = "midhun-poc-pulumi-la",
+            Tags = tag,
+            Sku = "Free",
+            RetentionInDays = 7
+        });
+
+        this.logAnalyticsId = logAnalytics.Id;
+
+        
     }
 
     [Output]
     public Output<string> subnetId { get; set; }
+    
+    [Output]
+    public Output<string> logAnalyticsId { get; set; }
+    
+    [Output]
+    public Output<string> vnetId { get; set; }
     
 
 }
