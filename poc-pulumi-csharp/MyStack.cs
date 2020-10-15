@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Pulumi;
 using Pulumi.Azure.ContainerService;
@@ -19,33 +20,33 @@ class MyStack : Stack
 {
     public MyStack()
     {
-        var config =  new Config();
+        var config = new Config();
         // Create a dict of tags, which can be 
         // used across resources in the stack
-        var tag = new Dictionary<string,string>
+        var tag = new Dictionary<string, string>
         {
             {"owner", "midhunmohan3009@gmail.com"},
             {"environment", config.Require("env")},
             {"personal-data", "no"},
             {"confidentiality", "internal"},
-            {"last-reviewed", "2020-09-18"}
+            {"last-reviewed", DateTime.Today.ToString("yyyy-MM-dd")}
         };
-        
+
         // Fetch vnet Address Space from stack  config value
         string vnetAddressSpace = config.Require("vnetAddressSpace");
-        
+
         // Fetch Tenant ID from stack config which is set as secret
         var tenantID = config.RequireSecret("tenantId");
-        
+
         // Create a Resource Group
         var resourceGroup = new ResourceGroup("resourceGroup", new ResourceGroupArgs
         {
             Name = "midhun-poc-pulumi",
             Tags = tag
         });
-        
+
         // Create a storage Account
-        var storageAccount =  new Account("storage",  new AccountArgs
+        var storageAccount = new Account("storage", new AccountArgs
         {
             Name = "midhunpocpulumi",
             Location = resourceGroup.Location,
@@ -54,9 +55,9 @@ class MyStack : Stack
             ResourceGroupName = resourceGroup.Name,
             Tags = tag
         });
-        
+
         // Create a Keyvault and set access policies
-        var keyvault = new KeyVault( "vault", new KeyVaultArgs
+        var keyvault = new KeyVault("vault", new KeyVaultArgs
         {
             Name = "midhun-poc-pulumi-vault",
             ResourceGroupName = resourceGroup.Name,
@@ -80,9 +81,9 @@ class MyStack : Stack
             Value = storageAccount.PrimaryConnectionString,
             KeyVaultId = keyvault.Id
         });
-        
+
         // Create a NSG to be used with subnets
-        var nsg =  new NetworkSecurityGroup("nsg", new NetworkSecurityGroupArgs
+        var nsg = new NetworkSecurityGroup("nsg", new NetworkSecurityGroupArgs
         {
             Name = "midhun-poc-pulumi-nsg",
             Location = resourceGroup.Location,
@@ -102,7 +103,7 @@ class MyStack : Stack
                 SourceAddressPrefix = "*"
             }
         });
-        
+
         // Create a virtual Network
         // Create subnets in the above vnet
         // Associate NSG created above to the Subnet
@@ -139,7 +140,7 @@ class MyStack : Stack
             VirtualNetworkName = virtualNetwork.Name,
             ResourceGroupName = resourceGroup.Name
         });
-        
+
         var subnet4 = new Subnet("sNet1", new SubnetArgs
         {
             Name = "subnet4",
@@ -148,7 +149,7 @@ class MyStack : Stack
             VirtualNetworkName = virtualNetwork.Name,
             ResourceGroupName = resourceGroup.Name
         });
-        
+
         // Create second vnet for implementing peering
         var virtualNetwork2 = new VirtualNetwork("vNet2", new VirtualNetworkArgs
         {
@@ -173,10 +174,10 @@ class MyStack : Stack
                 }
             }
         });
-        
+
 
         // Create peering vnet1 --> vnet2
-        var peering1 =  new VirtualNetworkPeering("peer1", new VirtualNetworkPeeringArgs
+        var peering1 = new VirtualNetworkPeering("peer1", new VirtualNetworkPeeringArgs
         {
             Name = "peer-vnet1-vnet2",
             AllowGatewayTransit = false,
@@ -186,7 +187,7 @@ class MyStack : Stack
         });
 
         // Create Reverse Peering vnet2 --> vnet1
-        var peering2 =  new VirtualNetworkPeering("peer2", new VirtualNetworkPeeringArgs
+        var peering2 = new VirtualNetworkPeering("peer2", new VirtualNetworkPeeringArgs
         {
             Name = "peer-vnet1-vnet2",
             AllowGatewayTransit = false,
@@ -209,7 +210,7 @@ class MyStack : Stack
                 PrivateIpAddressAllocation = "dynamic"
             }
         });
-        
+
         // Create a new Nic to check whether subnet Variable is working as expected
         var networkInterface2 = new NetworkInterface("nic2", new NetworkInterfaceArgs
         {
@@ -224,10 +225,10 @@ class MyStack : Stack
                 PrivateIpAddressAllocation = "dynamic"
             }
         });
-        
-        
+
+
         // Public IP prefix to be used accross multiple Appliances
-        var prefix =  new PublicIpPrefix("prefix", new PublicIpPrefixArgs
+        var prefix = new PublicIpPrefix("prefix", new PublicIpPrefixArgs
         {
             ResourceGroupName = resourceGroup.Name,
             Location = resourceGroup.Location,
@@ -236,7 +237,7 @@ class MyStack : Stack
             Tags = tag,
             PrefixLength = 28
         });
-        
+
         // Create an aks cluster with nodes in subnet4
         // Nodepool with node count = 1
         // Autoscaling =  true
@@ -248,7 +249,7 @@ class MyStack : Stack
         // setting above two after creating cluster will recreate the cluster :scream:
         // Do not do it in PROD. Action is destroy and create
         // Outbound IP from an already created Public IP prefix
-        var akscluster =  new KubernetesCluster("aks", new KubernetesClusterArgs
+        var akscluster = new KubernetesCluster("aks", new KubernetesClusterArgs
         {
             Location = resourceGroup.Location,
             Name = "midhun-poc-pulumi-aks-cluster",
@@ -294,7 +295,7 @@ class MyStack : Stack
                 }
             }
         });
-        
+
         // Create a sql server        
         var sqlsrv = new SqlServer("sqlsrv", new SqlServerArgs
         {
@@ -310,7 +311,7 @@ class MyStack : Stack
                 Type = "SystemAssigned"
             }
         });
-        
+
         // Create a sql db in the above created server
         var sqldb = new Database("sqldb", new DatabaseArgs
         {
@@ -325,17 +326,17 @@ class MyStack : Stack
             MaxSizeGb = "100",
             Collation = "Norwegian_100_CI_AS",
         });
-        
+
         // Find the subnet id 
         var gsubnet1 = Output.Create(GetSubnet.InvokeAsync(new GetSubnetArgs
         {
-        Name = "subnet1",
-        ResourceGroupName = "midhun-m-dev",
-        VirtualNetworkName = "midhun-test-vnet-1"
+            Name = "subnet1",
+            ResourceGroupName = "midhun-m-dev",
+            VirtualNetworkName = "midhun-test-vnet-1"
         }));
 
         this.subnetId = gsubnet1.Apply(gsubnet1 => gsubnet1.Id);
-        
+
         // use subnet id to create a vnet rule
         var vnetfirewallrule = new VirtualNetworkRule("vnetrule", new VirtualNetworkRuleArgs
         {
@@ -344,14 +345,14 @@ class MyStack : Stack
             ResourceGroupName = sqlsrv.ResourceGroupName,
             SubnetId = subnetId
         });
-        
+
         // Find Properties of virtual network
         var gvnet1 = Output.Create(GetVirtualNetwork.InvokeAsync(new GetVirtualNetworkArgs
         {
             Name = "midhun-test-vnet-1",
             ResourceGroupName = "midhun-m-dev"
         }));
-        
+
         // create forward peering => pulumi vnet --> non pulumi vnet
         var peer3 = new VirtualNetworkPeering("peer3", new VirtualNetworkPeeringArgs
         {
@@ -360,7 +361,7 @@ class MyStack : Stack
             VirtualNetworkName = virtualNetwork.Name,
             RemoteVirtualNetworkId = gvnet1.Apply(gvnet1 => gvnet1.Id)
         });
-        
+
         // Create reverse peering => non pulumi vnet --> pulumi vnet
         var peer4 = new VirtualNetworkPeering("peer4", new VirtualNetworkPeeringArgs
         {
@@ -369,9 +370,9 @@ class MyStack : Stack
             VirtualNetworkName = gvnet1.Apply(gvnet1 => gvnet1.Name),
             RemoteVirtualNetworkId = virtualNetwork.Id
         });
-       
+
         // Create a new eventhub namespace
-        var evhns =  new EventHubNamespace("evhnns", new EventHubNamespaceArgs
+        var evhns = new EventHubNamespace("evhnns", new EventHubNamespaceArgs
         {
             Name = "midhun-poc-pulumi-evhns",
             Location = resourceGroup.Location,
@@ -382,7 +383,7 @@ class MyStack : Stack
             Capacity = 1,
             MaximumThroughputUnits = 1
         });
-        
+
         // Create a new eventhub in the above namespace
         var evh = new EventHub("evh", new EventHubArgs
         {
@@ -392,18 +393,18 @@ class MyStack : Stack
             PartitionCount = 1,
             ResourceGroupName = resourceGroup.Name
         });
-        
+
         // Create a new consumer group in above eventhub
         var consumerGroup = new ConsumerGroup("consumer1", new ConsumerGroupArgs
         {
-            Name   = "consumerGroup1",
+            Name = "consumerGroup1",
             EventhubName = evh.Name,
             NamespaceName = evhns.Name,
             ResourceGroupName = resourceGroup.Name
         });
-        
+
         // Create a new Authorization rule in eventhub
-        var authRule =  new AuthorizationRule("rule1", new AuthorizationRuleArgs
+        var authRule = new AuthorizationRule("rule1", new AuthorizationRuleArgs
         {
             Name = "rule1",
             EventhubName = evh.Name,
@@ -411,8 +412,8 @@ class MyStack : Stack
             ResourceGroupName = resourceGroup.Name,
             Send = true
         });
-        
-        var logAnalytics =  new AnalyticsWorkspace("la", new AnalyticsWorkspaceArgs
+
+        var logAnalytics = new AnalyticsWorkspace("la", new AnalyticsWorkspaceArgs
         {
             Location = resourceGroup.Location,
             ResourceGroupName = resourceGroup.Name,
@@ -424,17 +425,10 @@ class MyStack : Stack
 
         this.logAnalyticsId = logAnalytics.Id;
 
-        
     }
 
-    [Output]
-    public Output<string> subnetId { get; set; }
-    
-    [Output]
-    public Output<string> logAnalyticsId { get; set; }
-    
-    [Output]
-    public Output<string> vnetId { get; set; }
-    
+    [Output] public Output<string> subnetId { get; set; }
+
+    [Output] public Output<string> logAnalyticsId { get; set; }
 
 }
