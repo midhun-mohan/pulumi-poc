@@ -7,6 +7,7 @@ using Pulumi.Azure.Core;
 using Pulumi.Azure.EventHub;
 using Pulumi.Azure.KeyVault;
 using Pulumi.Azure.KeyVault.Inputs;
+using Pulumi.Azure.MSSql;
 using Pulumi.Azure.Network;
 using Pulumi.Azure.Network.Inputs;
 using Pulumi.Azure.OperationalInsights;
@@ -15,12 +16,22 @@ using Pulumi.Azure.Sql.Inputs;
 using Pulumi.Azure.Storage;
 using Database = Pulumi.Azure.Sql.Database;
 using DatabaseArgs = Pulumi.Azure.Sql.DatabaseArgs;
+using pulumi_poc_midhun;
+using Namespace = Pulumi.Azure.ServiceBus.Namespace;
+using NamespaceAuthorizationRule = Pulumi.Azure.ServiceBus.NamespaceAuthorizationRule;
+using QueueArgs = Pulumi.Azure.ServiceBus.QueueArgs;
+using ServerExtendedAuditingPolicy = Pulumi.Azure.MSSql.ServerExtendedAuditingPolicy;
 
 class MyStack : Stack
 {
     public MyStack()
     {
+        // Create a config Object
         var config = new Config();
+        
+        //Fetch stack name from pulumi
+        string stack = Deployment.Instance.StackName; 
+        
         // Create a dict of tags, which can be 
         // used across resources in the stack
         var tag = new Dictionary<string, string>
@@ -29,10 +40,11 @@ class MyStack : Stack
             {"environment", config.Require("env")},
             {"personal-data", "no"},
             {"confidentiality", "internal"},
+            {"stackName", stack},
             {"last-reviewed", DateTime.Today.ToString("yyyy-MM-dd")}
         };
 
-        // Fetch vnet Address Space from stack  config value
+        // Fetch vnet Address Space from stack config value
         string vnetAddressSpace = config.Require("vnetAddressSpace");
 
         // Fetch Tenant ID from stack config which is set as secret
@@ -41,25 +53,30 @@ class MyStack : Stack
         // Create a Resource Group
         var resourceGroup = new ResourceGroup("resourceGroup", new ResourceGroupArgs
         {
-            Name = "midhun-poc-pulumi",
+            Name = NamingConventionProvider.Resourcegroup(stack),
             Tags = tag
         });
 
         // Create a storage Account
         var storageAccount = new Account("storage", new AccountArgs
         {
-            Name = "midhunpocpulumi",
+            Name = NamingConventionProvider.StorageAccount(stack),
             Location = resourceGroup.Location,
             AccountReplicationType = "LRS",
             AccountTier = "Premium",
             ResourceGroupName = resourceGroup.Name,
             Tags = tag
+        },
+        new CustomResourceOptions
+        {
+            AdditionalSecretOutputs = {"primaryAccessKey", "primaryBlobConnectionString"}
         });
+        
 
         // Create a Keyvault and set access policies
         var keyvault = new KeyVault("vault", new KeyVaultArgs
         {
-            Name = "midhun-poc-pulumi-vault",
+            Name = NamingConventionProvider.Keyvault(stack),
             ResourceGroupName = resourceGroup.Name,
             Tags = tag,
             SkuName = "standard",
@@ -79,6 +96,15 @@ class MyStack : Stack
             Name = "storageAccountKey",
             Tags = tag,
             Value = storageAccount.PrimaryConnectionString,
+            KeyVaultId = keyvault.Id
+        });
+        
+        // Create a secret in the above KeyVault
+        var sqlserverAdminPassword = new Secret("secret1", new SecretArgs
+        {
+            Name = "sqlServerAdminPassword",
+            Tags = tag,
+            Value = config.RequireSecret("sqlServerAdministratorPassword"),
             KeyVaultId = keyvault.Id
         });
 
@@ -301,7 +327,7 @@ class MyStack : Stack
         {
             Location = resourceGroup.Location,
             ResourceGroupName = resourceGroup.Name,
-            Name = "midhun-poc-pulumi-sql-srv",
+            Name = "midhun-poc-pulumi-sql-new-srv",
             Tags = tag,
             Version = "12.0",
             AdministratorLogin = "midhun-poc-admin",
@@ -312,12 +338,24 @@ class MyStack : Stack
             }
         });
 
+        var srvauditing = new ServerExtendedAuditingPolicy("auditing", new ServerExtendedAuditingPolicyArgs
+        {
+            ServerId = sqlsrv.Id,
+            StorageEndpoint = storageAccount.PrimaryBlobEndpoint,
+            RetentionInDays = 0,
+            StorageAccountAccessKey = storageAccount.PrimaryAccessKey
+        },
+            new CustomResourceOptions
+            {
+                DependsOn = sqlsrv
+            } );
+
         // Create a sql db in the above created server
         var sqldb = new Database("sqldb", new DatabaseArgs
         {
             Location = resourceGroup.Location,
             ResourceGroupName = resourceGroup.Name,
-            Name = "midhun-poc-pulumi-db",
+            Name = "midhun-poc-pulumi-new-db",
             Tags = tag,
             ServerName = sqlsrv.Name,
             Edition = "Basic",
@@ -326,6 +364,8 @@ class MyStack : Stack
             MaxSizeGb = "100",
             Collation = "Norwegian_100_CI_AS",
         });
+
+        
 
         // Find the subnet id 
         var gsubnet1 = Output.Create(GetSubnet.InvokeAsync(new GetSubnetArgs
@@ -424,6 +464,44 @@ class MyStack : Stack
         });
 
         this.logAnalyticsId = logAnalytics.Id;
+        
+        // Create a Service Bus Namespace 
+        var serviceBusNamespace = new Namespace("sbns", new Pulumi.Azure.ServiceBus.NamespaceArgs
+        {
+            Name = NamingConventionProvider.GetServiceBusNamespace(stack),
+            Tags = tag,
+            ResourceGroupName = resourceGroup.Name,
+            Location = resourceGroup.Location,
+            Sku = "Premium",
+            Capacity = 4,
+            ZoneRedundant = false
+        });
+        
+        // Create a queue in the above service bus
+        var sbQueue = new Pulumi.Azure.ServiceBus.Queue("queue", new QueueArgs
+        {
+            Name = NamingConventionProvider.GetServiceBusQueue(stack),
+            NamespaceName = serviceBusNamespace.Name,
+            ResourceGroupName = serviceBusNamespace.ResourceGroupName,
+            MaxSizeInMegabytes = 10240,
+            LockDuration = "PT30S",
+            MaxDeliveryCount = 5,
+            DefaultMessageTtl = "P14D",
+            EnableExpress = false,
+            EnablePartitioning = true,
+            DeadLetteringOnMessageExpiration = true,
+            AutoDeleteOnIdle = "P10675199DT2H48M5.4775807S",
+            DuplicateDetectionHistoryTimeWindow = "PT10M",
+            Status = "Active"
+        });
+        
+        var sbAccessPolicy = new NamespaceAuthorizationRule("authRule", new Pulumi.Azure.ServiceBus.NamespaceAuthorizationRuleArgs
+        {
+            Name = NamingConventionProvider.GetServiceBusAuthRuleName(stack, "send"),
+            NamespaceName = serviceBusNamespace.Name,
+            ResourceGroupName = serviceBusNamespace.ResourceGroupName,
+            Send = true
+        });
 
     }
 
